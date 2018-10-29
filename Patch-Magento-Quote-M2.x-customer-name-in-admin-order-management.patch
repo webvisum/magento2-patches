@@ -11,12 +11,11 @@ diff --git a/Model/QuoteManagement.php b/Model/QuoteManagement.php
 index 7c1017df32fe..f3992fafd7b3 100644
 --- a/Model/QuoteManagement.php
 +++ b/Model/QuoteManagement.php
-@@ -353,11 +353,13 @@ public function placeOrder($cartId, PaymentInterface $paymentMethod = null)
-         }
+@@ -354,8 +354,10 @@
  
          if ($quote->getCheckoutMethod() === self::METHOD_GUEST) {
-+            $billingAddress = $quote->getBillingAddress();
-+            
+             $billingAddress = $quote->getBillingAddress();
++             
              $quote->setCustomerId(null);
 -            $quote->setCustomerEmail($quote->getBillingAddress()->getEmail());
 +            $quote->setCustomerEmail($billingAddress->getEmail());
