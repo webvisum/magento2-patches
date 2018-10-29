@@ -1,0 +1,28 @@
+From 94ecdd5b3c76e6e018469f0d4fcbba01232c92d2 Mon Sep 17 00:00:00 2001
+From: mahesh <mahesh721@webkul.com>
+Date: Tue, 16 Oct 2018 14:50:58 +0530
+Subject: [PATCH 3/4] The Travis CI build fixed.
+
+---
+ Model/QuoteManagement.php | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/Model/QuoteManagement.php b/Model/QuoteManagement.php
+index 7c1017df32fe..f3992fafd7b3 100644
+--- a/Model/QuoteManagement.php
++++ b/Model/QuoteManagement.php
+@@ -353,11 +353,13 @@ public function placeOrder($cartId, PaymentInterface $paymentMethod = null)
+         }
+ 
+         if ($quote->getCheckoutMethod() === self::METHOD_GUEST) {
++            $billingAddress = $quote->getBillingAddress();
++            
+             $quote->setCustomerId(null);
+-            $quote->setCustomerEmail($quote->getBillingAddress()->getEmail());
++            $quote->setCustomerEmail($billingAddress->getEmail());
++            $quote->setCustomerFirstname($billingAddress->getFirstname());
++            $quote->setCustomerMiddlename($billingAddress->getMiddlename());
++            $quote->setCustomerLastname($billingAddress->getLastname());
+             $quote->setCustomerIsGuest(true);
+             $quote->setCustomerGroupId(\Magento\Customer\Api\Data\GroupInterface::NOT_LOGGED_IN_ID);
+         }
