@@ -1,0 +1,11 @@
+--- Model/Plugin/CustomerFlushFormKey.php
++++ Model/Plugin/CustomerFlushFormKey.php
+@@ -45,7 +45,7 @@ public function aroundExecute(FlushFormKey $subject, callable $proceed, ...$args
+         $currentFormKey = $this->dataFormKey->getFormKey();
+         $proceed(...$args);
+         $beforeParams = $this->session->getBeforeRequestParams();
+-        if ($beforeParams['form_key'] == $currentFormKey) {
++        if (isset($beforeParams['form_key']) && $beforeParams['form_key'] === $currentFormKey) {
+             $beforeParams['form_key'] = $this->dataFormKey->getFormKey();
+             $this->session->setBeforeRequestParams($beforeParams);
+         }
