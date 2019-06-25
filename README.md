@@ -69,6 +69,7 @@ magento/module-catalog|Patch-Magento-Catalog-M2.1.x-toolbar-default-sorting.patc
 klarna/module-kco|Patch-Klarna_Kco-5.0.5-reload-summary-action-error-log.patch|Fix wrong function parameters order|>=5.0.5
 magento/module-catalog-inventory|Patch-Magento_CatalogInventory-M2.2.0-2.2.3-fix-update-stock-item-on-product-save.patch|Fix: Update stock item on product save|>=2.2.0 <2.2.4
 magento/module-catalog|Patch-Magento-Catalog-M2.2.6-fix-18154-tierprices-cant-be-updated.patch|fix updating of tier prices when price scope is set to website|2.2.6
+amzn/amazon-pay-and-login-with-amazon-core-module|Patch-amzn-amazon-pay-and-login-with-amazon-core-module.patch|fix missing street address for German addresses https://github.com/amzn/amazon-payments-magento-2-plugin/issues/442|Mage <2.3 Module <2.14
 
 Full composer.json example:
 
@@ -222,6 +223,9 @@ Full composer.json example:
             },
             "magento/module-catalog-inventory": {
                 "Fix: Update stock item on product save": "https://raw.githubusercontent.com/ConvertGroupsAS/magento2-patches/master/Patch-Magento_CatalogInventory-M2.2.0-2.2.3-fix-update-stock-item-on-product-save.patch"
+            },
+            "amzn/amazon-pay-and-login-with-amazon-core-module": {
+            "Fix missing street in german orders": "https://github.com/webvisum/magento2-patches/Patch-amzn-amazon-pay-and-login-with-amazon-core-module.patch"
             }
         }
     }
