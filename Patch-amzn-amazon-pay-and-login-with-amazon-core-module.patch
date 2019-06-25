@@ -1,0 +1,21 @@
+From 53fa98e1fc1b946b50145f5a8731e44a080464e4 Mon Sep 17 00:00:00 2001
+From: Mike Martin <mike@beargroup.com>
+Date: Thu, 4 Apr 2019 15:06:55 -0400
+Subject: [PATCH] asd-77: fix missing street address for German addresses
+
+---
+ Core/Domain/AmazonAddressDecoratorDe.php | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Core/Domain/AmazonAddressDecoratorDe.php b/Core/Domain/AmazonAddressDecoratorDe.php
+index cafcbbdb..f9e18b2d 100644
+--- a/Core/Domain/AmazonAddressDecoratorDe.php
++++ b/Core/Domain/AmazonAddressDecoratorDe.php
+@@ -178,6 +178,6 @@ private function isPackstationAddress($address)
+      */
+     public function getLine($lineNumber)
+     {
+-        $this->amazonAddress->getLine($lineNumber);
++        return $this->amazonAddress->getLine($lineNumber);
+     }
+ }
