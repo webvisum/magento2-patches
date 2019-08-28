@@ -1,0 +1,292 @@
+From 99c2427744ded215039f5ae52a6fa1f3cd636e6a Mon Sep 17 00:00:00 2001
+From: Romain Ruaud <romain.ruaud@smile.fr>
+Date: Tue, 23 Apr 2019 16:12:56 +0200
+Subject: [PATCH] Refactoring category filtering, and allow to chose between
+ redirect and drill-down
+
+---
+ .../Model/Layer/Filter/Category.php           | 49 ++++++++++++++-----
+ .../etc/adminhtml/system.xml                  |  7 ++-
+ .../etc/config.xml                            |  1 +
+ .../i18n/en_US.csv                            | 32 +++++++-----
+ .../i18n/fr_FR.csv                            | 32 +++++++-----
+ .../Model/Layer/Filter/Category.php           |  9 +++-
+ 6 files changed, 92 insertions(+), 38 deletions(-)
+
+diff --git a/src/module-elasticsuite-catalog/Model/Layer/Filter/Category.php b/src/module-elasticsuite-catalog/Model/Layer/Filter/Category.php
+index f46424ef..e04cd831 100644
+--- a/src/module-elasticsuite-catalog/Model/Layer/Filter/Category.php
++++ b/src/module-elasticsuite-catalog/Model/Layer/Filter/Category.php
+@@ -16,12 +16,19 @@
+ /**
+  * Product category filter implementation.
+  *
++ * @SuppressWarnings(PHPMD.CouplingBetweenObjects)
++ *
+  * @category Smile
+  * @package  Smile\ElasticsuiteCatalog
+  * @author   Aurelien FOUCRET <aurelien.foucret@smile.fr>
+  */
+ class Category extends \Magento\CatalogSearch\Model\Layer\Filter\Category
+ {
++    /**
++     * Configuration path for URL rewrite usage.
++     */
++    const XML_CATEGORY_FILTER_USE_URL_REWRITE = 'smile_elasticsuite_catalogsearch_settings/catalogsearch/category_filter_use_url_rewrites';
++
+     /**
+      * @var \Magento\Catalog\Model\Layer\Filter\DataProvider\Category
+      */
+@@ -42,10 +49,16 @@ class Category extends \Magento\CatalogSearch\Model\Layer\Filter\Category
+      */
+     private $childrenCategories;
+ 
++    /**
++     * @var \Smile\ElasticsuiteCore\Api\Search\ContextInterface
++     */
++    private $searchContext;
++
+     /**
+      * Constructor.
+      *
+      * @SuppressWarnings(PHPMD.BooleanArgumentFlag)
++     * @SuppressWarnings(PHPMD.ExcessiveParameterList)
+      *
+      * @param \Magento\Catalog\Model\Layer\Filter\ItemFactory                  $filterItemFactory   Filter item factory.
+      * @param \Magento\Store\Model\StoreManagerInterface                       $storeManager        Store manager.
+@@ -53,6 +66,8 @@ class Category extends \Magento\CatalogSearch\Model\Layer\Filter\Category
+      * @param \Magento\Catalog\Model\Layer\Filter\Item\DataBuilder             $itemDataBuilder     Item data builder.
+      * @param \Magento\Framework\Escaper                                       $escaper             HTML escaper.
+      * @param \Magento\Catalog\Model\Layer\Filter\DataProvider\CategoryFactory $dataProviderFactory Data provider.
++     * @param \Magento\Framework\App\Config\ScopeConfigInterface               $scopeConfig         Scope configuration.
++     * @param \Smile\ElasticsuiteCore\Api\Search\ContextInterface              $context             Search Context.
+      * @param boolean                                                          $useUrlRewrites      Uses URLs rewrite for rendering.
+      * @param array                                                            $data                Custom data.
+      */
+@@ -63,22 +78,29 @@ public function __construct(
+         \Magento\Catalog\Model\Layer\Filter\Item\DataBuilder $itemDataBuilder,
+         \Magento\Framework\Escaper $escaper,
+         \Magento\Catalog\Model\Layer\Filter\DataProvider\CategoryFactory $dataProviderFactory,
++        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
++        \Smile\ElasticsuiteCore\Api\Search\ContextInterface $context,
+         $useUrlRewrites = false,
+         array $data = []
+     ) {
+-            parent::__construct(
+-                $filterItemFactory,
+-                $storeManager,
+-                $layer,
+-                $itemDataBuilder,
+-                $escaper,
+-                $dataProviderFactory,
+-                $data
+-            );
+-
+-            $this->escaper        = $escaper;
+-            $this->dataProvider   = $dataProviderFactory->create(['layer' => $this->getLayer()]);
+-            $this->useUrlRewrites = $useUrlRewrites;
++        parent::__construct(
++            $filterItemFactory,
++            $storeManager,
++            $layer,
++            $itemDataBuilder,
++            $escaper,
++            $dataProviderFactory,
++            $data
++        );
++
++        $this->escaper        = $escaper;
++        $this->dataProvider   = $dataProviderFactory->create(['layer' => $this->getLayer()]);
++        $this->searchContext  = $context;
++        $this->useUrlRewrites = ($useUrlRewrites === true) ? (bool) $scopeConfig->isSetFlag(
++            self::XML_CATEGORY_FILTER_USE_URL_REWRITE,
++            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
++            $storeManager->getStore()->getId()
++        ) : false;
+     }
+ 
+     /**
+@@ -93,6 +115,7 @@ public function apply(\Magento\Framework\App\RequestInterface $request)
+ 
+             $category = $this->dataProvider->getCategory();
+ 
++            $this->searchContext->setCurrentCategory($category);
+             $this->applyCategoryFilterToCollection($category);
+ 
+             if ($request->getParam('id') != $category->getId() && $this->dataProvider->isValid()) {
+diff --git a/src/module-elasticsuite-catalog/etc/adminhtml/system.xml b/src/module-elasticsuite-catalog/etc/adminhtml/system.xml
+index 411ed212..419e9be1 100644
+--- a/src/module-elasticsuite-catalog/etc/adminhtml/system.xml
++++ b/src/module-elasticsuite-catalog/etc/adminhtml/system.xml
+@@ -55,7 +55,12 @@
+                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                     <comment><![CDATA[If there is only one product matching a given search query, the user will be redirect to this product page.]]></comment>
+                 </field>
+-                <field id="expanded_facets" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
++                <field id="category_filter_use_url_rewrites" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
++                    <label>Use URL Rewrites for Category Filter in category navigation</label>
++                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
++                    <comment><![CDATA[When set to yes, users are redirected (and all filters are reset) to the chosen category page when they use the category filter in layered navigation.]]></comment>
++                </field>
++                <field id="expanded_facets" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                     <label>Expanded facets</label>
+                     <validate>integer</validate>
+                     <comment><![CDATA[Number of facets to display expanded by default.]]></comment>
+diff --git a/src/module-elasticsuite-catalog/etc/config.xml b/src/module-elasticsuite-catalog/etc/config.xml
+index 63fc8f14..686fbb28 100644
+--- a/src/module-elasticsuite-catalog/etc/config.xml
++++ b/src/module-elasticsuite-catalog/etc/config.xml
+@@ -35,6 +35,7 @@
+         <smile_elasticsuite_catalogsearch_settings>
+             <catalogsearch>
+                 <redirect_if_one_result>1</redirect_if_one_result>
++                <category_filter_use_url_rewrites>1</category_filter_use_url_rewrites>
+                 <expanded_facets>3</expanded_facets>
+             </catalogsearch>
+         </smile_elasticsuite_catalogsearch_settings>
+diff --git a/src/module-elasticsuite-catalog/i18n/en_US.csv b/src/module-elasticsuite-catalog/i18n/en_US.csv
+index a53bb51c..6735989c 100755
+--- a/src/module-elasticsuite-catalog/i18n/en_US.csv
++++ b/src/module-elasticsuite-catalog/i18n/en_US.csv
+@@ -6,6 +6,7 @@ Save,Save
+ "<%- count %> products","<%- count %> products"
+ "No products in the selected range.","No products in the selected range."
+ "Search Configuration","Search Configuration"
++"Can be used only with catalog input type Text field, Dropdown, Multiple Select and Price.","Can be used only with catalog input type Text field, Dropdown, Multiple Select and Price."
+ "Display in autocomplete","Display in autocomplete"
+ "Facet coverage rate","Facet coverage rate"
+ "Ex: Brand facet will be displayed only if 90% of the product have a brand.","Ex: Brand facet will be displayed only if 90% of the product have a brand."
+@@ -14,6 +15,11 @@ Save,Save
+ "Facet sort order","Facet sort order"
+ "Search Weight","Search Weight"
+ "Used in spellcheck","Used in spellcheck"
++First,First
++Last,Last
++"Sort products without value when sorting ASC","Sort products without value when sorting ASC"
++"How the products which are missing values for this attribute should be treated when using it to sort.","How the products which are missing values for this attribute should be treated when using it to sort."
++"Sort products without value when sorting DESC","Sort products without value when sorting DESC"
+ "Slider Display Configuration","Slider Display Configuration"
+ "Display pattern","Display pattern"
+ "A pattern like %s UNIT where %s is the value. Eg : $%s => $20 or %s € => 20 €","A pattern like %s UNIT where %s is the value. Eg : $%s => $20 or %s € => 20 €"
+@@ -44,6 +50,13 @@ OK,OK
+ "Automatic Sort","Automatic Sort"
+ "Manual Sort","Manual Sort"
+ "Show more","Show more"
++Search,Search
++"Refine search","Refine search"
++"Clear search","Clear search"
++"Your search returned no results.","Your search returned no results."
++"Preview Only Mode","Preview Only Mode"
++"Clear product positions","Clear product positions"
++"Clear all products positions and blacklist status ?","Clear all products positions and blacklist status ?"
+ "In Stock","In Stock"
+ "Out Of Stock","Out Of Stock"
+ "Show less","Show less"
+@@ -60,6 +73,8 @@ OK,OK
+ "Catalog Search Configuration","Catalog Search Configuration"
+ "Redirect to product page if only one result","Redirect to product page if only one result"
+ "If there is only one product matching a given search query, the user will be redirect to this product page.","If there is only one product matching a given search query, the user will be redirect to this product page."
++"Use URL Rewrites for Category Filter in category navigation","Use URL Rewrites for Category Filter in category navigation"
++"When set to yes, users are redirected (and all filters are reset) to the chosen category page when they use the category filter in layered navigation.","When set to yes, users are redirected (and all filters are reset) to the chosen category page when they use the category filter in layered navigation."
+ "Expanded facets","Expanded facets"
+ "Number of facets to display expanded by default.","Number of facets to display expanded by default."
+ "ElasticSuite Category Indexing","ElasticSuite Category Indexing"
+@@ -73,19 +88,14 @@ Attribute,Attribute
+ "Sort Order","Sort Order"
+ Pinned,Pinned
+ "Use Category Name in product search","Use Category Name in product search"
++"Add New Optimizer","Add New Optimizer"
++"All Store Views","All Store Views"
++"Store View","Store View"
++ID,ID
++"Query Text","Query Text"
+ "No search result for the current search.","No search result for the current search."
++"Clear all products positions and blacklist status ? All products will be reset to be visible and in 'Automatic Sort'.","Clear all products positions and blacklist status ? All products will be reset to be visible and in 'Automatic Sort'."
+ Products,Products
+ Categories,Categories
+ Attributes,Attributes
+-"Refine search","Refine search"
+-"Clear search","Clear search"
+-"Your search returned no results.","Your search returned no results."
+-"Clear product positions","Clear product positions"
+-"Clear all products positions and blacklist status ? All products will be reset to be visible and in 'Automatic Sort'.","Clear all products positions and blacklist status ? All products will be reset to be visible and in 'Automatic Sort'."
+ "No value matching the search <b>%1</b>.","No value matching the search <b>%1</b>."
+-"Sort products without value when sorting ASC","Sort products without value when sorting ASC"
+-"Sort products without value when sorting DESC","Sort products without value when sorting DESC"
+-"How the products which are missing values for this attribute should be treated when using it to sort.","How the products which are missing values for this attribute should be treated when using it to sort."
+-"First","First"
+-"Last","Last"
+-"Can be used only with catalog input type Text field, Dropdown, Multiple Select and Price.","Can be used only with catalog input type Text field, Dropdown, Multiple Select and Price."
+diff --git a/src/module-elasticsuite-catalog/i18n/fr_FR.csv b/src/module-elasticsuite-catalog/i18n/fr_FR.csv
+index 8e43a901..95be9213 100755
+--- a/src/module-elasticsuite-catalog/i18n/fr_FR.csv
++++ b/src/module-elasticsuite-catalog/i18n/fr_FR.csv
+@@ -6,6 +6,7 @@ Save,Sauvegarder
+ "<%- count %> products","<%- count %> produits"
+ "No products in the selected range.","Aucun produit trouvé pour cet intervalle."
+ "Search Configuration","Configuration de la recherche"
++"Can be used only with catalog input type Text field, Dropdown, Multiple Select and Price.","Ne peut être utilisé qu’avec un type de saisie ""champ texte"", ""liste déroulante"", ""choix multiple"", ou ""prix""."
+ "Display in autocomplete","Afficher dans l'autocomplétion"
+ "Facet coverage rate","Taux de couverture de la facette"
+ "Ex: Brand facet will be displayed only if 90% of the product have a brand.","Ex: La facette Marque sera affichée uniquement si 90% of des produits ont une marque."
+@@ -14,6 +15,11 @@ Save,Sauvegarder
+ "Facet sort order","Ordre de tri de la facette"
+ "Search Weight","Pondération dans la recherche"
+ "Used in spellcheck","Utiliser la recherche approchante"
++"First","En premier"
++"Last","En dernier"
++"Sort products without value when sorting ASC","Trier les produits sans valeurs lors d'un tri ASC"
++"How the products which are missing values for this attribute should be treated when using it to sort.","Comment sont traités les produits sans valeur lorsque cet attribut est utilisé pour trier."
++"Sort products without value when sorting DESC","Trier les produits sans valeurs lors d'un tri DESC"
+ "Slider Display Configuration","Slider Display Configuration"
+ "Display pattern","Display pattern"
+ "A pattern like %s UNIT where %s is the value. Eg : $%s => $20 or %s € => 20 €","A pattern like %s UNIT where %s is the value. Eg : $%s => $20 or %s € => 20 €"
+@@ -44,6 +50,13 @@ OK,OK
+ "Automatic Sort","Tri Automatique"
+ "Manual Sort","Tri manuel"
+ "Show more","Voir plus"
++Search,Rechercher
++"Refine search","Affiner votre recherche"
++"Clear search","Annuler la recherche"
++"Your search returned no results.","Votre recherche n'a donné aucun résultat."
++"Preview Only Mode","Mode prévisualisation uniquement"
++"Clear product positions","Réinitialiser les positions"
++"Clear all products positions and blacklist status ?","Réinitialiser les positions et le masquage des produits ?"
+ "In Stock","En Stock"
+ "Out Of Stock","Épuisé"
+ "Show less","Voir moins"
+@@ -60,6 +73,8 @@ OK,OK
+ "Catalog Search Configuration","Configuration de la recherche catalogue"
+ "Redirect to product page if only one result","Rediriger vers la fiche produit pour un résultat unique"
+ "If there is only one product matching a given search query, the user will be redirect to this product page.","Si une recherche ne renvoie qu'un seul produit, l'utilisateur sera redirigé vers la fiche de ce produit."
++"Use URL Rewrites for Category Filter in category navigation","Utiliser les ré-écritures d'URL pour le filtre catégorie dans la navigation catalogue"
++"When set to yes, users are redirected (and all filters are reset) to the chosen category page when they use the category filter in layered navigation.","Si placé à Oui, les utilisateurs sont redirigés (et tous les filtres remis à zéro) lors de l'utilisation d'un filtre de catégorie dans la navigation catalogue."
+ "Expanded facets","Facettes dépliées"
+ "Number of facets to display expanded by default.","Nombre de facettes dépliées par défaut."
+ "ElasticSuite Category Indexing","Index des catégories ElasticSuite"
+@@ -73,19 +88,14 @@ No,Non
+ "Sort Order","Ordre de tri"
+ "Pinned","Épinglé"
+ "Use Category Name in product search","Utiliser le nom de la catégorie dans les résultats de recherche"
++"Add New Optimizer","Add New Optimizer"
++"All Store Views","All Store Views"
++"Store View","Store View"
++ID,ID
++"Query Text","Query Text"
+ "No search result for the current search.","Aucun résultat pour la recherche actuelle."
++"Clear all products positions and blacklist status ? All products will be reset to be visible and in 'Automatic Sort'.","Réinitialiser les positions et le masquage des produits ? Tous les produits seront rétablis en 'Tri Automatique' et visibles."
+ Products,Produits
+ Categories,Catégories
+ Attributes,Attributs
+-"Refine search","Affiner votre recherche"
+-"Clear search","Annuler la recherche"
+-"Your search returned no results.","Votre recherche n'a donné aucun résultat."
+-"Clear product positions","Réinitialiser les positions"
+-"Clear all products positions and blacklist status ? All products will be reset to be visible and in 'Automatic Sort'.","Réinitialiser les positions et le masquage des produits ? Tous les produits seront rétablis en 'Tri Automatique' et visibles."
+ "No value matching the search <b>%1</b>.","Aucun résultat pour la recherche <b>%s</b>."
+-"Sort products without value when sorting ASC","Trier les produits sans valeurs lors d'un tri ASC"
+-"Sort products without value when sorting DESC","Trier les produits sans valeurs lors d'un tri DESC"
+-"How the products which are missing values for this attribute should be treated when using it to sort.","Comment sont traités les produits sans valeur lorsque cet attribut est utilisé pour trier."
+-"First","En premier"
+-"Last","En dernier"
+-"Can be used only with catalog input type Text field, Dropdown, Multiple Select and Price.","Ne peut être utilisé qu’avec un type de saisie ""champ texte"", ""liste déroulante"", ""choix multiple"", ou ""prix""."
